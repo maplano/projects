@@ -1,0 +1,161 @@
+
+#1 Obtain and clean data
+>setwd("C:/Users/…/Projects to post")
+>download.file("http://spark-
+public.s3.amazonaws.com/dataanalysis/samsungData.rda",destfile=("C:/Users/MaryAnne/Desktop/Data Analysis/samsung.rda"))
+>load("samsung.rda")
+>dim(samsungData)
+	[1] 7352  563
+       ##check for missing data
+       > ChkNA<-colSums(samsungData[,1:561])
+       > sum(is.na(ChkNA))
+       [1] 0
+#check values are all as expected, we are told
+# data is between -1 and 1 for each measurement
+       >ChkMins<-min(samsungData[,1:561])
+       >ChkMax<-max(samsungData[,1:561])
+##create training and test data sets 
+>samtest<-
+subset(samsungData,samsungData$subject==27|samsungData$subject==28|samsungData$subject==29|samsungData$subject==30)
+>samtrain<-
+subset(samsungData,samsungData$subject==1|samsungData$subject==3|samsungData$subject==5|samsungData$subject==6)
+#make column names identical
+>colnames(samtrain)<-make.names(names(samtrain),unique=T)
+>colnames(samtest)<-make.names(names(samtest),unique=T)
+##have to change activity to a factor and
+##make into a data frame before applying tree
+>samtrain$activity=factor(samtrain$activity)
+>samtrain=data.frame(samtrain)
+>samtest$activity=factor(samtest$activity)
+>samtest=data.frame(samtest)
+#2 Tree Classification
+	#use tree package
+	>library("tree", lib.loc="C:/Users/…/Documents/R/win-library/3.0")
+       >truetree2<-tree(activity ~ . - subject,data=samtrain)
+       >summary(truetree2)
+       #Classification tree:
+       # tree(formula = activity ~ . - subject, data = samtrain)
+       #Variables actually used in tree construction:
+       [1] "tBodyAcc.max...X"                
+       [2] "tGravityAcc.mean...X"            
+       [3] "tGravityAcc.max...Y"             
+       [4] "tGravityAcc.mean...Y"            
+       [5] "tGravityAcc.mean...Z"            
+       [6] "tGravityAcc.min...Y"             
+       [7] "fBodyAccJerk.bandsEnergy...17.32"
+       [8] "fBodyAccMag.std.."               
+       [9] "fBodyAcc.bandsEnergy...17.24.1"  
+       [10] "tBodyAccJerk.max...X"            
+       Number of terminal nodes:  12 
+       Residual mean deviance:  0.1573 = 204.9 / 1303 
+       Misclassification error rate: 0.02357 = 31 / 1315 
+       plot(truetree2)
+       text(truetree2,cex=0.5)
+       ##try looking at cv errors to figure out how to prune
+       >cvmis<-cv.tree(truetree2,FUN=prune.tree,method="misclass")
+       >cvdev<-cv.tree(truetree2)
+       >png(file="cvtree.png",height=480,width=2*(480))
+       >par(mfrow=c(1,2))
+       >plot(cvmis)
+       >plot(cvdev)
+       >dev.off()
+       >par(mfrow=c(1,1)) ##return to regular window for future plots
+       
+       ##now prune tree and plot
+       >pr2<-prune.tree(truetree2,best=6)
+       >summary(pr2)
+
+       Classification tree:
+ 	 snip.tree(tree = truetree2, nodes = c(6L, 14L, 10L, 15L))
+       Variables actually used in tree construction:
+ 	 [1] "tBodyAcc.max...X"     "tGravityAcc.mean...X"
+       [3] "tGravityAcc.max...Y"  "tGravityAcc.min...Y" 
+       [5] "fBodyAccMag.std.."   
+       Number of terminal nodes:  6 
+       Residual mean deviance:  0.4939 = 646.5 / 1309 
+       Misclassification error rate: 0.07224 = 95 / 1315 
+       ##create a png file for graph
+       >png(file="pr2tree.png",height=480,width=(480))
+       >plot(pr2)
+       >text(pr2,cex=0.75)
+       >dev.off()
+       
+       #looking at error of model on training set and
+       #on test set
+       ##create code to calculate various errors
+       #ATr is table for training data using full model
+       >ATr<-table(samtrain$activity,predict(truetree2,type="class"))
+       >ROWS<-apply(ATr,1,sum)
+       >COLS<-apply(ATr,2,sum)
+       >Recall<-diag(ATr)/ROWS
+       >Prec<-diag(ATr)/COLS
+       
+       ## A is table for training data using pruned model
+       >A<-table(samtrain$activity,predict(pr2,type="class"))
+       >Tot<-sum(A)
+       >TrDiag<-sum(diag(A))
+       >TrNDiag<-sum(A*(1-diag(nrow(A))))
+       >miscalculation =TrNDiag/Tot
+       >1 - miscalculation = accuracy
+       >Acc=TrDiag/Tot
+       >miscalc=TrNDiag/Tot
+       >Acc
+       [1] 0.9277567
+       > 1-miscalc
+       [1] 0.9277567
+       >ROWS<-apply(A,1,sum)
+       >COLS<-apply(A,2,sum)
+       >Recall<-diag(A)/ROWS
+       >Prec<-diag(A)/COL
+
+	# B is table for test data using pruned model
+       >newdata<-samtest
+       >B<-table(samtest$activity,predict(pr2,newdata,type="class"))
+       >Tottst<-sum(B)
+       >TstDiag<-sum(diag(B))
+       >TstNDiag<-sum(B*(1-diag(nrow(B))))
+       >Acc=TstDiag/Tottst
+       >miscalc=TstNDiag/Tottst
+       > Acc
+       [1] 0.7973064
+       > miscalc
+       [1] 0.2026936
+	> ROWS<-apply(B,1,sum)
+       > COLS<-apply(B,2,sum)
+       > Recall<-diag(B)/ROWS
+       > Prec<-diag(B)/COLS
+       #now test out transforming
+       #terms based on truetree2
+       >X<-names(samtrain)
+       >which(X=="tBodyAcc.max...X")
+       #[1] "tBodyAcc.max...X" #10  
+       >which(X=="tBodyAccJerk.max...X")
+       #[2] "tGravityAcc.mean...X" #41           
+       #[3] "tGravityAcc.max...Y" #51            
+       #[4] "tGravityAcc.mean...Y" #42           
+       #[5] "tGravityAcc.mean...Z" #43           
+       #[6] "tGravityAcc.min...Y" #54            
+       #[7] "fBodyAccJerk.bandsEnergy...17.32"#391
+       #[8] "fBodyAccMag.std.."  #504             
+       #[9] "fBodyAcc.bandsEnergy...17.24.1" #319
+       #[10] "tBodyAccJerk.max...X" #90       
+       >par(mfrow=c(3,2))
+       >boxplot(samtrain[,10] ~ samtrain$activity,main="ft1")
+       >boxplot(samtrain[,54] ~ samtrain$activity,main="ft6")
+       >boxplot(samtrain[,391] ~ samtrain$activity,main="ft7")
+       >boxplot(samtrain[,504] ~ samtrain$activity,main="ft8")
+       >boxplot(samtrain[,319] ~ samtrain$activity,main="ft9")
+       >boxplot(samtrain[,90] ~ samtrain$activity,main="ft10")
+       
+       #try combos of 391*504, 391*319, 391*90,504*90,319*90
+       >samtrain$new78<-samtrain[,391]*samtrain[,504]
+       >samtrain$new79<-samtrain[,391]*samtrain[,319]
+       >samtrain$new710<-samtrain[,391]*samtrain[,90]
+       >samtrain$new810<-samtrain[,504]*samtrain[,90]
+       >samtrain$new910<-samtrain[,319]*samtrain[,90]
+
+       >truetree3<-tree(activity ~ . - subject,data=samtrain)
+       >summary(truetree3)
+       ##no change in variables selected–stick with original pruned model
+R script for Activity Recognition Analysis
+
